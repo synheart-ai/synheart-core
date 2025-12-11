@@ -239,5 +239,5 @@ Apache 2.0 License - see [LICENSE](LICENSE) for details.
 ---
 
 **Author**: Israel Goytom  
-**Organization**: Synheart Research & Engineering
+**Organization**: Synheart AI <3 
 

@@ -24,14 +24,14 @@ The Core SDK is available for mobile platforms:
 ### Flutter/Dart SDK
 ```yaml
 dependencies:
-  synheart_core: ^0.1.0
+  synheart_core: ^1.0.0
 ```
 📖 **Repository**: [synheart-core-sdk-dart](https://github.com/synheart-ai/synheart-core-sdk-dart)
 
 ### Android SDK (Kotlin)
 ```kotlin
 dependencies {
-    implementation("ai.synheart:core-sdk:0.1.0")
+    implementation("ai.synheart:core-sdk:1.0.0")
 }
 ```
 📖 **Repository**: [synheart-core-sdk-kotlin](https://github.com/synheart-ai/synheart-core-sdk-kotlin)
@@ -40,7 +40,7 @@ dependencies {
 **Swift Package Manager:**
 ```swift
 dependencies: [
-    .package(url: "https://github.com/synheart-ai/synheart-core-sdk-swift.git", from: "0.1.0")
+    .package(url: "https://github.com/synheart-ai/synheart-core-sdk-swift.git", from: "1.0.0")
 ]
 ```
 📖 **Repository**: [synheart-core-sdk-swift](https://github.com/synheart-ai/synheart-core-sdk-swift)
@@ -50,13 +50,12 @@ dependencies: [
 This repository serves as the **source of truth** for shared resources across all SDK implementations:
 
 ```
-synheart-core-sdk/
-├── docs/                          # Technical documentation
-│   ├── ARCHITECTURE.md            # System architecture
-│   ├── API_REFERENCE.md           # API documentation
-│   └── MODULES.md                 # Module documentation
-│
-├── examples/                      # Cross-platform example applications
+synheart-core/
+├── docs/                          # Technical documentation (specs)
+│   ├── HSI_SPECIFICATION.md
+│   ├── CONSENT_SYSTEM.md
+│   └── CLOUD_PROTOCOL.md
+├── examples/                      # Example apps 
 ├── scripts/                       # Build and deployment scripts
 └── CONTRIBUTING.md                # Contribution guidelines for all SDKs
 ```
@@ -77,18 +76,27 @@ import 'package:synheart_core/synheart_core.dart';
 await Synheart.initialize(
   userId: 'anon_user_123',
   config: SynheartConfig(
-    // Module configuration
     enableWear: true,
     enablePhone: true,
     enableBehavior: true,
   ),
 );
 
-// Subscribe to HSI state updates
-Synheart.onStateUpdate.listen((state) {
-  print('Focus: ${state.focus.focusScore}');
-  print('Emotion: ${state.emotion.stressIndex}');
-  print('Behavior: ${state.behavior.distractionScore}');
+// Subscribe to HSI updates (core state representation)
+Synheart.onHSIUpdate.listen((hsi) {
+  print('Arousal Index: ${hsi.affect.arousalIndex}');
+  print('Engagement Stability: ${hsi.engagement.engagementStability}');
+});
+
+// Optional: Enable interpretation modules
+await Synheart.enableFocus();
+Synheart.onFocusUpdate.listen((focus) {
+  print('Focus Score: ${focus.estimate.score}');
+});
+
+await Synheart.enableEmotion();
+Synheart.onEmotionUpdate.listen((emotion) {
+  print('Stress Index: ${emotion.stressIndex}');
 });
 
 // Enable cloud upload (with consent)
@@ -111,10 +119,16 @@ Synheart.initialize(
     )
 )
 
-// Subscribe to updates
-Synheart.onStateUpdate.collect { state ->
-    println("Focus: ${state.focus.focusScore}")
-    println("Emotion: ${state.emotion.stressIndex}")
+// Subscribe to HSI updates (core state representation)
+Synheart.onHSIUpdate.collect { hsi ->
+    println("Arousal Index: ${hsi.affect.arousalIndex}")
+    println("Engagement Stability: ${hsi.engagement.engagementStability}")
+}
+
+// Optional: Enable interpretation modules
+Synheart.enableFocus()
+Synheart.onFocusUpdate.collect { focus ->
+    println("Focus Score: ${focus.estimate.score}")
 }
 
 // Enable cloud
@@ -136,10 +150,16 @@ Synheart.initialize(
     )
 )
 
-// Subscribe to updates
-Synheart.onStateUpdate.sink { state in
-    print("Focus: \(state.focus.focusScore)")
-    print("Emotion: \(state.emotion.stressIndex)")
+// Subscribe to HSI updates (core state representation)
+Synheart.onHSIUpdate.sink { hsi in
+    print("Arousal Index: \(hsi.affect.arousalIndex)")
+    print("Engagement Stability: \(hsi.engagement.engagementStability)")
+}
+
+// Optional: Enable interpretation modules
+Synheart.enableFocus()
+Synheart.onFocusUpdate.sink { focus in
+    print("Focus Score: \(focus.estimate.score)")
 }
 
 // Enable cloud
@@ -156,33 +176,34 @@ The Core SDK consolidates all Synheart signal channels:
 Synheart Core SDK
 │
 ├── Wear Module
-│      (HR, HRV, sleep, motion from wearables or cloud sync)
+│      (HR, HRV, sleep, motion — derived signals only)
 │
 ├── Phone Module
-│      (motion, screen, app context)
+│      (motion, screen state, coarse app context)
 │
-├── Behavior Module
+├── Synheart Behavior (Module)
 │      (interaction patterns: taps, scrolls, typing cadence)
 │
 ├── HSI Runtime (On-device)
-│      - fusion engine
-│      - state windows (30s, 5m, 1h)
-│      - embedding model (64D)
+│      - multimodal fusion
+│      - state axes & indices
+│      - time windows (30s, 5m, 1h, 24h)
+│      - 64D state embedding
 │
-├── Focus Engine
-│      (focus_score, flow_likelihood)
-│
-├── Emotion Engine
-│      (stress, calm, valence, arousal)
+├── Interpretation Modules (Optional)
+│      ├── Synheart Emotion
+│      │     (affect modeling - optional, explicit enable)
+│      └── Synheart Focus
+│            (engagement/focus estimation - optional, explicit enable)
 │
 ├── Consent Module
-│      (captures user permissions, enforces masking)
+│      (permissions, masking, enforcement)
 │
 ├── Cloud Connector
-│      (secure ingestion)
+│      (secure, consent-gated uploads)
 │
 └── Syni Hooks
-       (HSI → persona conditioning)
+       (HSI context + optional interpretations)
 ```
 
 ### Capability System
@@ -201,9 +222,11 @@ Only Synheart apps (Syni Life, SWIP, Platform) get extended/research capabilitie
 
 ## 📚 Documentation
 
-- [Architecture Guide](docs/ARCHITECTURE.md) - Detailed system architecture
-- [API Reference](docs/API_REFERENCE.md) - Complete API documentation
-- [Modules Guide](docs/MODULES.md) - Module-specific documentation
+- [Product Requirements](docs/PRD.md) - Product specification and goals
+- [HSI Specification](docs/HSI_SPECIFICATION.md) - State axes, indices, and embeddings
+- [Capability System](docs/CAPABILITY_SYSTEM.md) - Access level enforcement
+- [Consent System](docs/CONSENT_SYSTEM.md) - Permission model and enforcement
+- [Cloud Protocol](docs/CLOUD_PROTOCOL.md) - Secure ingestion protocol
 
 ## 🔒 Privacy & Security
 

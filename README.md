@@ -191,10 +191,12 @@ Synheart Core SDK
 │      - 64D state embedding
 │
 ├── Interpretation Modules (Optional)
-│      ├── Synheart Emotion
+│      ├── EmotionHead (uses synheart-emotion package)
 │      │     (affect modeling - optional, explicit enable)
-│      └── Synheart Focus
+│      │     Powered by: synheart-emotion SDK
+│      └── FocusHead (uses synheart-focus package)
 │            (engagement/focus estimation - optional, explicit enable)
+│            Powered by: synheart-focus SDK
 │
 ├── Consent Module
 │      (permissions, masking, enforcement)
@@ -252,12 +254,53 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 Apache 2.0 License - see [LICENSE](LICENSE) for details.
 
-## 🔗 Related Projects
+## 🔗 Related Projects & Dependencies
 
-- [Synheart Focus](https://github.com/synheart-ai/synheart-focus) - Cognitive concentration inference
-- [Synheart Emotion](https://github.com/synheart-ai/synheart-emotion) - Physiological emotion inference
-- [Synheart Behavior](https://github.com/synheart-ai/synheart-behavior) - Digital behavioral signal capture
-- [Synheart Wear](https://github.com/synheart-ai/synheart-wear) - Wearable device integration
+### Core Dependencies
+
+Synheart Core depends on the following SDKs as implementation layers:
+
+- **[Synheart Emotion](https://github.com/synheart-ai/synheart-emotion)** - Powers EmotionHead module
+  - Provides emotion inference from biosignals (HR/RR)
+  - Used by: EmotionHead for affect modeling
+  - Detects: Amused, Calm, Stressed states
+  - Schema validated against HSI specification
+
+- **[Synheart Focus](https://github.com/synheart-ai/synheart-focus)** - Powers FocusHead module
+  - Provides cognitive concentration inference
+  - Used by: FocusHead for engagement/focus estimation
+  - Outputs: Focus score, cognitive load, clarity
+  - Schema validated against HSI specification
+
+### Supporting Libraries
+
+- **[Synheart Wear](https://github.com/synheart-ai/synheart-wear)** - Wearable device integration
+  - Used by: Wear Module for biosignal collection
+  - Supports: Apple Watch, Garmin, WHOOP, etc.
+
+- **[Synheart Behavior](https://github.com/synheart-ai/synheart-behavior)** - Digital behavioral signal capture
+  - Used by: Behavior Module for interaction patterns
+  - Tracks: Taps, scrolls, typing cadence, idle patterns
+
+### Dependency Architecture
+
+```
+Runtime Dependencies (package):
+  synheart-core → synheart-emotion (EmotionHead implementation)
+  synheart-core → synheart-focus (FocusHead implementation)
+  synheart-core → synheart-wear (Wear Module)
+  synheart-core → synheart-behavior (Behavior Module)
+
+Schema Validation (no code dependency):
+  synheart-emotion ← validates against HSI_SPECIFICATION.md
+  synheart-focus ← validates against HSI_SPECIFICATION.md
+```
+
+**Key Principle:**
+- synheart-emotion and synheart-focus remain **standalone SDKs**
+- They can be used independently without synheart-core
+- synheart-core uses them as implementation layers for EmotionHead and FocusHead
+- Their output schemas are validated against HSI specification for compatibility
 
 ---
 

@@ -306,6 +306,167 @@ HSI follows semantic versioning: `MAJOR.MINOR.PATCH`
 
 ---
 
+## Interpretation Modules
+
+HSI provides the foundation for optional interpretation modules that add semantic meaning to state representations.
+
+### Design Principle
+
+> **HSI represents human state. Interpretation is downstream and optional.**
+
+Interpretation modules:
+- ✅ Consume HSI outputs (axes, embeddings, metadata)
+- ✅ Provide semantic interpretations (emotion labels, focus scores)
+- ✅ Are explicitly enabled by applications
+- ✅ Operate independently of HSI Runtime
+- ❌ Do NOT affect HSI core state representation
+
+### Available Interpretation Modules
+
+#### EmotionHead
+
+**Purpose:** Infers emotional state from physiological signals
+
+**Implementation:** Uses [synheart-emotion](https://github.com/synheart-ai/synheart-emotion) SDK
+
+**Input:** HR/RR intervals from Wear Module + HSI context
+
+**Output Schema:**
+```dart
+class EmotionState {
+  double stress;        // 0.0 - 1.0
+  double calm;          // 0.0 - 1.0
+  double engagement;    // 0.0 - 1.0 (amused)
+  double activation;    // 0.0 - 1.0 (derived)
+  double valence;       // -1.0 to 1.0 (derived)
+}
+```
+
+**Emotion Categories:**
+- **Stressed**: High arousal, negative valence
+- **Calm**: Low arousal, neutral/positive valence
+- **Amused**: High arousal, positive valence
+
+**Usage:**
+```dart
+await Synheart.enableEmotion();
+
+Synheart.onEmotionUpdate.listen((emotion) {
+  print('Stress: ${emotion.stress}');
+  print('Calm: ${emotion.calm}');
+});
+```
+
+**Schema Validation:**
+- EmotionResult from synheart-emotion maps to EmotionState
+- Validated against this HSI specification via CI
+- Breaking changes require coordinated releases
+
+---
+
+#### FocusHead
+
+**Purpose:** Estimates cognitive concentration and engagement
+
+**Implementation:** Uses [synheart-focus](https://github.com/synheart-ai/synheart-focus) SDK
+
+**Input:** Multimodal HSI (biosignals + behavior + context)
+
+**Output Schema:**
+```dart
+class FocusState {
+  double score;           // 0.0 - 1.0 (overall focus)
+  double cognitiveLoad;   // 0.0 - 1.0
+  double clarity;         // 0.0 - 1.0
+  double distraction;     // 0.0 - 1.0
+}
+```
+
+**Usage:**
+```dart
+await Synheart.enableFocus();
+
+Synheart.onFocusUpdate.listen((focus) {
+  print('Focus Score: ${focus.score}');
+  print('Cognitive Load: ${focus.cognitiveLoad}');
+});
+```
+
+**Schema Validation:**
+- FocusResult from synheart-focus maps to FocusState
+- Validated against this HSI specification via CI
+
+---
+
+### Integration Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│          Synheart Core (HSI Runtime)             │
+│                                                  │
+│  Wear Module → HSI Runtime → HSV (base state)   │
+│                                    │             │
+│                                    ├─► EmotionHead (synheart-emotion)
+│                                    │    └─► EmotionState
+│                                    │             │
+│                                    └─► FocusHead (synheart-focus)
+│                                         └─► FocusState
+│                                                  │
+└──────────────────────────────────────────────────┘
+                      │
+                      ▼
+              Complete HSV with interpretations
+```
+
+**Data Flow:**
+1. HSI Runtime produces base HSV (axes, embeddings)
+2. EmotionHead/FocusHead subscribe to HSV stream (if enabled)
+3. Heads use synheart-emotion/focus SDKs for inference
+4. Results mapped to HSI-compatible schemas
+5. Updated HSV emitted with interpretation data
+
+---
+
+### Dependency Management
+
+**Runtime Dependencies:**
+```yaml
+# synheart-core-dart/pubspec.yaml
+dependencies:
+  synheart_emotion: ^0.2.3  # EmotionHead implementation
+  synheart_focus: ^0.1.0    # FocusHead implementation
+```
+
+**Schema Compatibility:**
+- synheart-emotion validates against this spec (HSI_SPECIFICATION.md)
+- synheart-focus validates against this spec
+- CI fails if schema incompatibilities detected
+- Version matrix maintained in respective SDK READMEs
+
+---
+
+### Adding New Interpretation Modules
+
+To add a new interpretation module:
+
+1. **Create standalone SDK** (e.g., synheart-sleep)
+2. **Define output schema** compatible with HSI
+3. **Add to this specification** with schema documentation
+4. **Implement Head module** in synheart-core (EmotionHead pattern)
+5. **Add dependency** to platform SDKs (Dart, Kotlin, Swift)
+6. **Add schema validation** CI check
+7. **Update documentation** across all repos
+
+**Requirements:**
+- ✅ Standalone SDK can work without synheart-core
+- ✅ Output schema validated against HSI specification
+- ✅ Head module subscribes to HSV stream
+- ✅ Results enriched into HSV (not replacing base state)
+- ✅ Explicitly enabled by applications
+- ✅ Graceful degradation if module unavailable
+
+---
+
 ## Related Documentation
 
 - [PRD](PRD.md) - Product requirements

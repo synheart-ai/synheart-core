@@ -5,17 +5,18 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform Support](https://img.shields.io/badge/platforms-Dart%20%7C%20Kotlin%20%7C%20Swift-blue.svg)](#-sdks)
 
-The Synheart Core SDK is the single, unified integration point for developers who want to collect HSI-compatible data, process human state on-device, generate focus/emotion signals, integrate with Syni, upload derived HSI snapshots to the cloud (with user consent), and visualize state dashboards.
+The Synheart Core SDK is the single, unified integration point for developers who want to compute human state on-device (HSV), optionally generate focus/emotion interpretations, integrate with Syni, and export derived HSI 1.0 snapshots to the cloud (with user consent) and other external systems.
 
 ## 🚀 Features
 
 - **🔗 Unified API**: Single SDK for all Synheart features
-- **🧠 HSI Runtime**: On-device human state fusion and inference
-- **📱 Multi-Module**: Wear, Phone, Behavior, HSI, Consent, Cloud, Syni
+- **🧠 HSV Runtime**: On-device human state fusion and inference
+- **📱 Multi-Module**: Wear, Phone, Behavior, HSV, Consent, Cloud, Syni
 - **⚡ On-Device Processing**: All inference happens locally
 - **🔒 Privacy-First**: Zero raw data, consent-gated, capability-based
-- **🌐 Multi-Platform**: Flutter/Dart, Android/Kotlin, iOS/Swift
+- **🌐 Multi-Platform**: Flutter/Dart, Android/Kotlin, iOS/Swift (same HSV state space, native implementations)
 - **🎯 Capability System**: Core/Extended/Research modes
+- **📤 HSI 1.0 Export**: Export HSV to cross-platform JSON format for external systems
 
 ## 📦 SDKs
 
@@ -53,6 +54,8 @@ This repository serves as the **source of truth** for shared resources across al
 synheart-core/
 ├── docs/                          # Technical documentation (specs)
 │   ├── HSI_SPECIFICATION.md
+│   ├── HSV_vs_HSI.md
+│   ├── rfc-hsv.md
 │   ├── CONSENT_SYSTEM.md
 │   └── CLOUD_PROTOCOL.md
 ├── examples/                      # Example apps 
@@ -82,21 +85,22 @@ await Synheart.initialize(
   ),
 );
 
-// Subscribe to HSI updates (core state representation)
-Synheart.onHSIUpdate.listen((hsi) {
-  print('Arousal Index: ${hsi.affect.arousalIndex}');
-  print('Engagement Stability: ${hsi.engagement.engagementStability}');
+// Subscribe to HSV updates (core state representation)
+Synheart.onHSVUpdate.listen((hsv) {
+  print('Arousal Index: ${hsv.meta.axes.affect.arousalIndex}');
+  print('Engagement Stability: ${hsv.meta.axes.engagement.engagementStability}');
 });
 
 // Optional: Enable interpretation modules
 await Synheart.enableFocus();
 Synheart.onFocusUpdate.listen((focus) {
-  print('Focus Score: ${focus.estimate.score}');
+  print('Focus Score: ${focus.score}');
 });
 
 await Synheart.enableEmotion();
 Synheart.onEmotionUpdate.listen((emotion) {
-  print('Stress Index: ${emotion.stressIndex}');
+  print('Stress: ${emotion.stress}');
+  print('Calm: ${emotion.calm}');
 });
 
 // Enable cloud upload (with consent)
@@ -119,16 +123,16 @@ Synheart.initialize(
     )
 )
 
-// Subscribe to HSI updates (core state representation)
-Synheart.onHSIUpdate.collect { hsi ->
-    println("Arousal Index: ${hsi.affect.arousalIndex}")
-    println("Engagement Stability: ${hsi.engagement.engagementStability}")
+// Subscribe to HSV updates (core state representation)
+Synheart.onHSVUpdate.collect { hsv ->
+    println("Arousal Index: ${hsv.meta.axes.affect.arousalIndex}")
+    println("Engagement Stability: ${hsv.meta.axes.engagement.engagementStability}")
 }
 
 // Optional: Enable interpretation modules
 Synheart.enableFocus()
 Synheart.onFocusUpdate.collect { focus ->
-    println("Focus Score: ${focus.estimate.score}")
+    println("Focus Score: ${focus.score}")
 }
 
 // Enable cloud
@@ -150,16 +154,16 @@ Synheart.initialize(
     )
 )
 
-// Subscribe to HSI updates (core state representation)
-Synheart.onHSIUpdate.sink { hsi in
-    print("Arousal Index: \(hsi.affect.arousalIndex)")
-    print("Engagement Stability: \(hsi.engagement.engagementStability)")
+// Subscribe to HSV updates (core state representation)
+Synheart.onHSVUpdate.sink { hsv in
+    print("Arousal Index: \(hsv.meta.axes.affect.arousalIndex)")
+    print("Engagement Stability: \(hsv.meta.axes.engagement.engagementStability)")
 }
 
 // Optional: Enable interpretation modules
 Synheart.enableFocus()
 Synheart.onFocusUpdate.sink { focus in
-    print("Focus Score: \(focus.estimate.score)")
+    print("Focus Score: \(focus.score)")
 }
 
 // Enable cloud
@@ -184,8 +188,9 @@ Synheart Core SDK
 ├── Synheart Behavior (Module)
 │      (interaction patterns: taps, scrolls, typing cadence)
 │
-├── HSI Runtime (On-device)
+├── HSV Runtime (On-device)
 │      - multimodal fusion
+│      - produces HSV (Human State Vector)
 │      - state axes & indices
 │      - time windows (30s, 5m, 1h, 24h)
 │      - 64D state embedding
@@ -205,7 +210,17 @@ Synheart Core SDK
 │      (secure, consent-gated uploads)
 │
 └── Syni Hooks
-       (HSI context + optional interpretations)
+       (HSV context + optional interpretations)
+
+State Representation:
+├── HSV (Language-agnostic state representation)
+│      - Implemented in native types per platform
+│      - Dart: classes, Kotlin: data classes, Swift: structs
+│      - Fast, type-safe on-device processing
+│
+└── HSI 1.0 (Cross-platform wire format)
+       - JSON validated against canonical schema
+       - For external systems and cross-platform communication
 ```
 
 ### Capability System
@@ -217,7 +232,7 @@ Each module reads capability flags from Auth:
 | Wear | derived biosignals | higher freq | raw streams |
 | Phone | motion, screen | advanced app context | full context |
 | Behavior | basic metrics | extended metrics | event-level streams |
-| HSI | basic state | full embedding | full fusion vectors |
+| HSV Runtime | basic state | full embedding | full fusion vectors |
 | Connector | ingest | extended endpoints | research endpoints |
 
 Only Synheart apps (Syni Life, SWIP, Platform) get extended/research capabilities. External apps get core only.
@@ -225,7 +240,11 @@ Only Synheart apps (Syni Life, SWIP, Platform) get extended/research capabilitie
 ## 📚 Documentation
 
 - [Product Requirements](docs/PRD.md) - Product specification and goals
-- [HSI Specification](docs/HSI_SPECIFICATION.md) - State axes, indices, and embeddings
+- [HSV + HSI Specification](docs/HSV_AND_HSI_SPECIFICATION.md) - HSV (internal) + HSI 1.0 (external) specifications
+- [RFC-0001: HSV](docs/RFC-0001-hsv.md) - Normative description of HSV boundaries and properties
+- [RFC-0002: Consent](docs/RFC-0002-consent-system.md) - User permission model (alias for canonical text)
+- [RFC-0003: Capability](docs/RFC-0003-capability-system.md) - App authorization model
+- [RFC-0004: Access Control](docs/RFC-0004-access-control-model.md) - Canonical access decision procedure
 - [Capability System](docs/CAPABILITY_SYSTEM.md) - Access level enforcement
 - [Consent System](docs/CONSENT_SYSTEM.md) - Permission model and enforcement
 - [Cloud Protocol](docs/CLOUD_PROTOCOL.md) - Secure ingestion protocol
@@ -243,7 +262,7 @@ Only Synheart apps (Syni Life, SWIP, Platform) get extended/research capabilitie
 - **CPU**: < 2%
 - **Memory**: < 15MB
 - **Battery**: < 0.5%/hr
-- **HSI Updates**: ≤ 100ms latency
+- **HSV Updates**: ≤ 100ms latency
 - **Cloud Upload**: ≤ 80ms request time
 
 ## 🤝 Contributing

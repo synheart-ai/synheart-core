@@ -25,7 +25,7 @@ Synheart Core defines the following consent types:
 | `biosignals` | Wear Module | HR, HRV, sleep, motion from wearables | `false` |
 | `phoneContext` | Phone Module | Device motion, screen state, app context | `false` |
 | `behavior` | Behavior Module | Taps, scrolls, typing cadence | `false` |
-| `cloudUpload` | Cloud Connector | Upload derived HSI to cloud | `false` |
+| `cloudUpload` | Cloud Connector | Upload derived state (HSI 1.0 format) to cloud | `false` |
 
 ### Interpretation Module Consents
 
@@ -143,28 +143,28 @@ class WearModule {
 }
 ```
 
-### HSI Runtime Enforcement
+### HSV Runtime Enforcement
 
-HSI Runtime respects consent when computing state:
+HSV Runtime respects consent when computing state:
 
 ```dart
-HSI computeHSI(SignalBundle signals) {
-  final hsi = HSI();
+HumanStateVector computeHSV(SignalBundle signals) {
+  final hsv = HumanStateVector.base(...);
 
   // Only compute axes if consent granted
   if (ConsentModule.hasConsent('biosignals')) {
-    hsi.affect.arousalIndex = computeArousal(signals.wear);
+    hsv.meta.axes.affect.arousalIndex = computeArousal(signals.wear);
   } else {
-    hsi.affect.arousalIndex = null;  // Not 0.0, but null
+    hsv.meta.axes.affect.arousalIndex = null;  // Not 0.0, but null
   }
 
   if (ConsentModule.hasConsent('behavior')) {
-    hsi.engagement.engagementStability = computeEngagement(signals.behavior);
+    hsv.meta.axes.engagement.engagementStability = computeEngagement(signals.behavior);
   } else {
-    hsi.engagement.engagementStability = null;
+    hsv.meta.axes.engagement.engagementStability = null;
   }
 
-  return hsi;
+  return hsv;
 }
 ```
 
@@ -235,7 +235,7 @@ Consent and Capabilities are separate but related:
 | **Capability** | App permission to access features | Per-app, server-issued |
 
 **Example:**
-- External app has `Core` capability → can access basic HSI
+- External app has `Core` capability → can access basic HSV
 - External app has user consent for `biosignals` → can compute `arousalIndex`
 - External app does NOT have user consent for `behavior` → `engagementStability` is `null`
 - Internal app has `Extended` capability + user consent → can access full 64D embeddings
@@ -252,7 +252,7 @@ Data Collection = Consent (user) AND Capability (app)
 ### Local Data
 
 Synheart Core stores minimal local data:
-- HSI snapshots (last 24 hours, rolling window)
+- HSV snapshots (last 24 hours, rolling window)
 - Consent preferences
 - Module state caches
 
@@ -267,7 +267,7 @@ await Synheart.deleteModuleData('biosignals');
 
 ### Cloud Data
 
-If `cloudUpload` consent is granted, HSI snapshots are uploaded.
+If `cloudUpload` consent is granted, HSV snapshots are uploaded (converted to HSI 1.0 format).
 
 **User Controls:**
 ```dart
@@ -304,7 +304,7 @@ With appropriate consent, Synheart Core collects:
 - ✅ Screen on/off state
 - ✅ Interaction timing (taps, scrolls)
 - ✅ Hashed app context (non-reversible)
-- ✅ HSI state representations
+- ✅ HSV state representations
 
 ---
 
@@ -369,20 +369,20 @@ Synheart.onConsentChanged.listen((event) {
 ### Unit Tests
 
 ```dart
-test('HSI returns null when consent revoked', () async {
+test('HSV returns null when consent revoked', () async {
   // Grant consent
   await Synheart.grantConsent('biosignals');
 
-  // Get HSI
-  final hsi1 = await Synheart.getLatestHSI();
-  expect(hsi1.affect.arousalIndex, isNotNull);
+  // Get HSV
+  final hsv1 = await Synheart.getLatestHSV();
+  expect(hsv1.meta.axes.affect.arousalIndex, isNotNull);
 
   // Revoke consent
   await Synheart.revokeConsent('biosignals');
 
-  // Get HSI again
-  final hsi2 = await Synheart.getLatestHSI();
-  expect(hsi2.affect.arousalIndex, isNull);  // Must be null
+  // Get HSV again
+  final hsv2 = await Synheart.getLatestHSV();
+  expect(hsv2.meta.axes.affect.arousalIndex, isNull);  // Must be null
 });
 ```
 
@@ -391,7 +391,7 @@ test('HSI returns null when consent revoked', () async {
 ## Related Documentation
 
 - [PRD](PRD.md) - Product requirements
-- [HSI Specification](HSI_SPECIFICATION.md) - State representation
+- [HSV + HSI Specification](HSV_AND_HSI_SPECIFICATION.md) - State representation
 - [Capability System](CAPABILITY_SYSTEM.md) - App-level permissions
 - [Cloud Protocol](CLOUD_PROTOCOL.md) - Cloud upload specification
 

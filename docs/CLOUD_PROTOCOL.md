@@ -1,13 +1,13 @@
 # Cloud Protocol
 
-The **Cloud Connector** enables secure, consent-gated upload of derived HSI snapshots to the Synheart Platform.
+The **Cloud Connector** enables secure, consent-gated upload of derived state snapshots (HSI 1.0 format) to the Synheart Platform.
 
 ---
 
 ## Core Principles
 
 1. **Consent-Gated**: Uploads only occur with explicit user consent
-2. **Derived Data Only**: Only HSI representations, never raw signals
+2. **Derived Data Only**: Only state representations (HSI 1.0 format), never raw signals
 3. **Secure Transport**: HTTPS + HMAC authentication
 4. **Privacy-Preserving**: No raw content, direct identifiers, or raw biosignals (only pseudonymous IDs for routing)
 5. **Tenant-Isolated**: Data routed to correct tenant namespace
@@ -19,7 +19,7 @@ The **Cloud Connector** enables secure, consent-gated upload of derived HSI snap
 ```
 SDK (On-Device)                    Synheart Platform (Cloud)
 │                                   │
-├─ HSI Runtime                      ├─ Ingestion API
+├─ HSV Runtime                      ├─ Ingestion API
 │   ↓                               │   ↓
 ├─ Cloud Connector                  ├─ Tenant Router
 │   ↓                               │   ↓
@@ -41,65 +41,115 @@ Before any upload:
 2. SDK obtains tenant credentials from Synheart Platform
 3. SDK generates or retrieves HMAC secret key
 
-### 2. HSI Snapshot Preparation
+### 2. Prepare HSI 1.0 Snapshot (Contract Payload)
 
-The SDK prepares an HSI snapshot for upload:
+The SDK converts internal HSV to an **HSI 1.0 snapshot** for upload.
+
+**Important:** HSI is a contract payload (see `HSV_AND_HSI_SPECIFICATION.md`). Platform routing fields (tenant, subject identity) are **not** part of the HSI snapshot and are sent in headers / request envelope.
 
 ```json
 {
-  "userId": "anon_user_123",
-  "tenantId": "app_xyz_prod",
-  "timestamp": 1704067200,
-  "windowType": "short",
-  "duration": 300,
-  "axes": {
-    "affect": {
-      "arousalIndex": 0.72,
-      "valenceStability": 0.85
-    },
-    "engagement": {
-      "engagementStability": 0.68,
-      "interactionCadence": 0.54
-    },
-    "activity": {
-      "motionIndex": 0.42,
-      "postureStability": 0.91
-    },
-    "context": {
-      "screenActiveRatio": 0.83,
-      "sessionFragmentation": 0.31
+  "hsi_version": "1.0",
+  "observed_at_utc": "2025-12-28T00:00:10Z",
+  "computed_at_utc": "2025-12-28T00:00:11Z",
+  "producer": {
+    "name": "Synheart Core SDK",
+    "version": "1.0.0",
+    "instance_id": "0b6f3ac9-62f5-4c9f-9f0d-4c4b3f6b2a3b"
+  },
+  "window_ids": ["w1"],
+  "windows": {
+    "w1": {
+      "start": "2025-12-27T23:59:40Z",
+      "end": "2025-12-28T00:00:10Z",
+      "label": "micro"
     }
   },
-  "embedding": {
-    "vector": [0.12, -0.34, 0.56, ..., 0.78],
-    "dimension": 64,
-    "model": "hsi-fusion-v1"
+  "axes": {
+    "affect": {
+      "readings": [
+        {
+          "axis": "arousal",
+          "score": 0.72,
+          "confidence": 0.8,
+          "window_id": "w1",
+          "direction": "higher_is_more"
+        }
+      ]
+    },
+    "engagement": {
+      "readings": [
+        {
+          "axis": "engagement_stability",
+          "score": 0.68,
+          "confidence": 0.8,
+          "window_id": "w1",
+          "direction": "higher_is_more"
+        }
+      ]
+    }
   },
-  "metadata": {
-    "sdkVersion": "1.0.0",
+  "embeddings": [
+    {
+      "window_id": "w1",
+      "dimension": 64,
+      "encoding": "float32",
+      "confidence": 0.85,
+      "vector": [0.12, -0.34, 0.56, "..."],
+      "model": "hsi-fusion-v1"
+    }
+  ],
+  "privacy": {
+    "contains_pii": false,
+    "raw_biosignals_allowed": false,
+    "derived_metrics_allowed": true,
+    "embedding_allowed": true
+  },
+  "meta": {
+    "sdk_version": "1.0.0",
     "platform": "ios",
-    "deviceType": "iphone"
+    "device_type": "iphone"
   }
 }
 ```
 
 ### 3. HMAC Signing
 
-The SDK signs the request with HMAC-SHA256:
+The SDK signs the request with HMAC-SHA256 using a **stable signing string** (not raw JSON) to avoid mismatches due to formatting and to bind the signature to method/path:
 
 ```dart
-String computeHMAC(String payload, String secret, String nonce) {
-  final message = '$payload:$nonce';
+String sha256Hex(String s) => sha256.convert(utf8.encode(s)).toString();
+
+String computeHMAC({
+  required String method,
+  required String path,
+  required String tenant,
+  required String timestamp,
+  required String nonce,
+  required String bodyJson,
+  required String secret,
+}) {
+  final bodyHash = sha256Hex(bodyJson);
+  final signingString = [
+    method.toUpperCase(),
+    path,
+    tenant,
+    timestamp,
+    nonce,
+    bodyHash,
+  ].join('\n');
   final hmac = Hmac(sha256, utf8.encode(secret));
-  final digest = hmac.convert(utf8.encode(message));
+  final digest = hmac.convert(utf8.encode(signingString));
   return digest.toString();
 }
 ```
 
 **Signature Components:**
-- Payload: JSON-encoded HSI snapshot
+- Method + Path: prevents replay across endpoints
+- Tenant: binds to tenant routing key
+- Timestamp + Nonce: prevents replay
+- SHA256(body): stable across JSON whitespace / key ordering
 - Secret: Tenant-specific HMAC key (obtained during SDK initialization)
-- Nonce: Time-windowed random nonce (prevents replay attacks)
 
 ### 4. HTTP Request
 
@@ -121,8 +171,25 @@ X-Synheart-SDK-Version: 1.0.0
 **Body:**
 ```json
 {
-  "userId": "anon_user_123",
-  "snapshot": { ... }
+  "subject": {
+    "subject_type": "pseudonymous_user",
+    "subject_id": "anon_user_123"
+  },
+  "snapshot": { "hsi_version": "1.0", "...": "..." }
+}
+```
+
+**Batch Body (Optional):**
+```json
+{
+  "subject": {
+    "subject_type": "pseudonymous_user",
+    "subject_id": "anon_user_123"
+  },
+  "snapshots": [
+    { "hsi_version": "1.0", "...": "..." },
+    { "hsi_version": "1.0", "...": "..." }
+  ]
 }
 ```
 
@@ -132,7 +199,8 @@ The Synheart Platform validates:
 1. **HMAC signature**: Recomputes HMAC and compares
 2. **Nonce freshness**: Checks nonce is within 5-minute window
 3. **Tenant authorization**: Verifies tenant has ingestion capability
-4. **Schema validation**: Ensures HSI snapshot matches expected format
+4. **Schema validation**: Ensures HSI 1.0 payload matches expected format
+5. **Access control**: Upload allowed only if `Capability(app, cloud, export)` AND `Consent(user, cloudUpload)` are true
 
 ### 6. Response
 
@@ -236,8 +304,8 @@ Synheart Platform enforces rate limits per tenant:
 | **Tier** | **Requests/Minute** | **Requests/Hour** |
 |----------|---------------------|-------------------|
 | Free | 10 | 200 |
-| Developer | 60 | 2,000 |
-| Production | 600 | 20,000 |
+| Pro | 60 | 2,000 |
+| Research | 600 | 20,000 |
 | Enterprise | Custom | Custom |
 
 **Rate Limit Response (429):**
@@ -256,7 +324,7 @@ Synheart Platform enforces rate limits per tenant:
 
 ### Cloud Storage
 
-HSI snapshots uploaded to the cloud are retained:
+State snapshots (HSI 1.0 format) uploaded to the cloud are retained:
 
 - **Default**: 90 days
 - **Extended**: 1 year (with user consent)
@@ -295,7 +363,7 @@ Examples:
 
 ### Routing Logic
 
-Synheart Platform routes HSI snapshots to tenant-specific storage:
+Synheart Platform routes state snapshots (HSI 1.0 format) to tenant-specific storage:
 
 ```
 api.synheart.ai/v1/ingest/hsi
@@ -306,7 +374,7 @@ api.synheart.ai/v1/ingest/hsi
     ↓
 [Route to tenant namespace]
     ↓
-s3://synheart-hsi-prod/<tenantId>/<userId>/<timestamp>.json
+s3://synheart-hsi-prod/<tenantId>/<subject_id>/<timestamp>.json
 ```
 
 **Tenant Isolation:**
@@ -322,20 +390,31 @@ Upload endpoints respect capability levels:
 
 | **Capability** | **Endpoint** | **Access** |
 |----------------|--------------|------------|
-| Core | `/v1/ingest/hsi` | Basic HSI axes |
-| Extended | `/v1/ingest/hsi` | Full 64D embeddings |
-| Research | `/v1/ingest/hsi-research` | Full fusion vectors |
+| Core | `/v1/ingest/hsi` (HSI 1.0) | Basic HSV axes |
+| Extended | `/v1/ingest/hsi` (HSI 1.0) | Full 64D embeddings |
+| Research | `/v1/ingest/hsi-research` (HSI 1.0) | Full fusion vectors |
 
 **Extended Payloads (Extended/Research):**
 
+HSI snapshots remain **HSI-valid** at all tiers. Research-only internals MUST be carried in `snapshot.meta` (non-normative) so the snapshot stays schema-valid.
+
 ```json
 {
-  "userId": "anon_user_123",
+  "subject": { "subject_type": "pseudonymous_user", "subject_id": "anon_user_123" },
   "snapshot": {
-    "axes": { ... },
-    "embedding": {
-      "vector": [...],  // Full 64D (Extended)
-      "fusionVectors": {...}  // Internal fusion state (Research only)
+    "hsi_version": "1.0",
+    "observed_at_utc": "2025-12-28T00:00:10Z",
+    "computed_at_utc": "2025-12-28T00:00:11Z",
+    "producer": { "name": "Synheart Core SDK", "version": "1.0.0" },
+    "window_ids": ["w1"],
+    "windows": { "w1": { "start": "2025-12-27T23:59:40Z", "end": "2025-12-28T00:00:10Z" } },
+    "axes": { "affect": { "readings": [ { "axis": "arousal", "score": 0.72, "confidence": 0.8, "window_id": "w1" } ] } },
+    "embeddings": [ { "window_id": "w1", "dimension": 64, "encoding": "float32", "confidence": 0.85, "vector_hash": "sha256:..." } ],
+    "privacy": { "contains_pii": false, "raw_biosignals_allowed": false, "derived_metrics_allowed": true },
+    "meta": {
+      "sdk_version": "1.0.0",
+      "capability_tier": "research",
+      "fusion_vectors": { "...": "..." }
     }
   }
 }
@@ -391,14 +470,14 @@ Future<void> uploadWithRetry(HSISnapshot snapshot) async {
 
 ### Local Queueing
 
-When network is unavailable, SDK queues HSI snapshots locally:
+When network is unavailable, SDK queues HSV snapshots locally (converted to HSI 1.0 on upload):
 
 ```dart
 class UploadQueue {
-  List<HSISnapshot> _queue = [];
+  List<HumanStateVector> _queue = [];
 
-  Future<void> enqueue(HSISnapshot snapshot) async {
-    _queue.add(snapshot);
+  Future<void> enqueue(HumanStateVector hsv) async {
+    _queue.add(hsv);
     await _persistQueue();
 
     // Limit queue size (max 100 snapshots)
@@ -466,7 +545,7 @@ await Synheart.disableCloud();
 ### Manual Upload
 
 ```dart
-// Force upload of current HSI snapshot
+// Force upload of current HSV snapshot (converted to HSI 1.0)
 await Synheart.uploadNow();
 
 // Flush upload queue
@@ -504,11 +583,19 @@ Secret: test_hmac_secret_xyz
 
 ```dart
 test('HMAC signature is valid', () {
-  final payload = '{"userId":"test","snapshot":{}}';
+  final body = '{"subject":{"subject_type":"pseudonymous_user","subject_id":"test"},"snapshot":{"hsi_version":"1.0","observed_at_utc":"2025-12-28T00:00:10Z","computed_at_utc":"2025-12-28T00:00:10Z","producer":{"name":"test","version":"1.0.0"},"window_ids":["w1"],"windows":{"w1":{"start":"2025-12-28T00:00:00Z","end":"2025-12-28T00:00:10Z"}},"privacy":{"contains_pii":false,"raw_biosignals_allowed":false,"derived_metrics_allowed":true}}}';
   final secret = 'test_secret';
   final nonce = '1704067200_abc123';
 
-  final signature = computeHMAC(payload, secret, nonce);
+  final signature = computeHMAC(
+    method: 'POST',
+    path: '/v1/ingest/hsi',
+    tenant: 'test_tenant_sandbox',
+    timestamp: '1704067200',
+    nonce: nonce,
+    bodyJson: body,
+    secret: secret,
+  );
   expect(signature, isNotEmpty);
 });
 
@@ -527,12 +614,12 @@ test('Upload fails without consent', () async {
 ## Related Documentation
 
 - [PRD](PRD.md) - Product requirements
-- [HSI Specification](HSI_SPECIFICATION.md) - State representation format
+- [HSV + HSI Specification](HSV_AND_HSI_SPECIFICATION.md) - Covers both HSV and HSI 1.0
 - [Consent System](CONSENT_SYSTEM.md) - Permission management
 - [Capability System](CAPABILITY_SYSTEM.md) - Access level enforcement
 
 ---
 
-**Last Updated:** 2025-12-25
+**Last Updated:** 2025-12-29
 **Version:** 1.0.0
 **Maintained by:** Synheart AI

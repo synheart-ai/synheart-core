@@ -248,6 +248,8 @@ Only Synheart apps (Syni Life, SWIP, Platform) get extended/research capabilitie
 - [Capability System](docs/CAPABILITY_SYSTEM.md) - Access level enforcement
 - [Consent System](docs/CONSENT_SYSTEM.md) - Permission model and enforcement
 - [Cloud Protocol](docs/CLOUD_PROTOCOL.md) - Secure ingestion protocol
+- [Contributing Guide](CONTRIBUTING.md) - How to contribute (covers all SDKs)
+- [Changelog](CHANGELOG.md) - Version history for all SDKs
 
 ## 🔒 Privacy & Security
 
